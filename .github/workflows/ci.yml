@@ -5,16 +5,40 @@ on:
     branches: ['main', 'master']
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOMAXPROCS: '1'
+  GOFLAGS: -p=1 -trimpath
+  GOMEMLIMIT: 512MiB
+  NODE_OPTIONS: --max-old-space-size=768
+  MAVEN_OPTS: -Xmx512m
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, ci-bounded]
+    timeout-minutes: 360
     steps:
+      - name: Isolate temporary Docker credentials
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-docker"
+          chmod 700 "$RUNNER_TEMP/ci-docker"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/ci-docker" >> "$GITHUB_ENV"
+        timeout-minutes: 2
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      - run: npm ci --prefer-offline --no-fund
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
